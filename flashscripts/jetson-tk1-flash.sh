@@ -30,6 +30,7 @@ board_setup_boot_folder()
     current_dir=`pwd`
     mkdir -p "$boot_dir/extlinux/"
     cp "$mount_dir/extlinux.conf" "$boot_dir/extlinux/"
+    sed -i "s/mmcblk0p1/mmcblk0p2/" "$boot_dir/extlinux/extlinux.conf"
     mkdir -p "$boot_dir/systems/factory"
     cp "$mount_dir/systems/factory/kernel" "$boot_dir/systems/factory/"
     cp "$mount_dir/systems/factory/dtb" "$boot_dir/systems/factory/"
