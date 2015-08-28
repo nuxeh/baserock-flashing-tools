@@ -46,11 +46,13 @@ fi;
 # Check to see if the Baserock image is already partitioned
 check_partitioning()
 {
-    mkdir tmp/testmnt
+    mkdir -p tmp/testmnt
     if mount -t btrfs $baserock_image tmp/testmnt; then
         umount tmp/testmnt
+        echo 'Using unpartitioned image'
         partitioned_image=0
     else
+        echo 'Using partitioned image'
         partitioned_image=1
     fi
     rm tmp/testmnt
@@ -59,7 +61,7 @@ check_partitioning()
 # Search for a partition containing a filename
 find_partition_containing()
 {
-    mkdir tmp/testmnt
+    mkdir -p tmp/testmnt
     ret=1
     for offset in $(fdisk -l $2 | egrep "$2[0-9]+" | awk '{print $2}'); do
         if mount -o loop,offset="$offset" -t btrfs $2 tmp/testmnt; then
@@ -72,7 +74,7 @@ find_partition_containing()
     done
     rm tmp/testmnt
     if [ $ret == 1 ]; then
-        echo "Can't find target '$1' in any partition in the image"
+        echo "Can't find target '$1' in any partition in the image" 1>&2
         exit 1
     fi
     return $ret
@@ -161,11 +163,12 @@ board_flash_uboot
 
 sleep 5
 
+losetup
 cat /proc/partitions | tr -s ' ' | cut -d ' ' -f 5 > tmp/devices.new
 
 # partition
 
-fs_device=`comm -3 tmp/devices.existing tmp/devices.new | sed -e 's/^[ \t]*//'`
+fs_device=`comm -3 tmp/devices.existing tmp/devices.new | sed -e 's/^[ \t]*//'` # | sed 's/loop\d+/'`
 echo $fs_device
 set -- $fs_device
 
