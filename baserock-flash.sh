@@ -55,7 +55,7 @@ check_partitioning()
         echo 'Using partitioned image'
         partitioned_image=1
     fi
-    rm tmp/testmnt
+    rm -rf tmp/testmnt
 }
 
 # Search for a partition containing a filename
@@ -72,7 +72,7 @@ find_partition_containing()
             umount tmp/testmnt
         fi
     done
-    rm tmp/testmnt
+    rm -rf tmp/testmnt
     if [ $ret == 1 ]; then
         echo "Can't find target '$1' in any partition in the image" 1>&2
         exit 1
@@ -100,7 +100,7 @@ mount_baserock_image()
 {
     mkdir -p tmp/brmount
     mkdir -p tmp/boot
-    if [ "$partitioned_image" -eq "0"]; then
+    if [ "$partitioned_image" -eq "0" ]; then
         mount -t btrfs $1 tmp/brmount
         cp -a -r tmp/brmount/systems/factory/run/boot/* tmp/boot/
     else
