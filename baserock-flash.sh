@@ -19,10 +19,11 @@ mkdir -p tmp/
 baserock_image=$1
 device_type=$2
 
+partitioned_image=0
+
 cleanup()
 {
-    umount tmp/brmount &>/dev/null || true
-    umount tmp/bootmount &>/dev/null || true
+    umount tmp/* &>/dev/null || true
     rm -rf tmp/* || true
 }
 trap cleanup EXIT
@@ -42,13 +43,68 @@ if [ ! -f "flashscripts/${device_type}-flash.sh" ]; then
     exit 1
 fi;
 
+# Check to see if the Baserock image is already partitioned
+check_partitioning()
+{
+    mkdir tmp/testmnt
+    if mount -t btrfs $baserock_image tmp/testmnt; then
+        umount tmp/testmnt
+        partitioned_image=0
+    else
+        partitioned_image=1
+    fi
+    rm tmp/testmnt
+}
+
+# Search for a partition containing a filename
+find_partition_containing()
+{
+    mkdir tmp/testmnt
+    ret=1
+    for offset in $(fdisk -l $2 | egrep "$2[0-9]+" | awk '{print $2}'); do
+        if mount -o loop,offset="$offset" -t btrfs $2 tmp/testmnt; then
+            if [ -f "$1" ]; then
+                echo "$offset"
+                ret=0
+            fi
+            umount tmp/testmnt
+        fi
+    done
+    rm tmp/testmnt
+    if [ $ret == 1 ]; then
+        echo "Can't find target '$1' in any partition in the image"
+        exit 1
+    fi
+    return $ret
+}
+
+# Search for a partition containing a Baserock rootfs
+find_root_fs()
+{
+    find_partition_containing 'tmp/test/systems/default/orig/baserock' $1
+}
+
+# Search for a partition containing boot files
+find_boot()
+{
+    find_partition_containing 'u-boot.bin' $1
+}
+
+check_partitioning
+
 source flashscripts/${device_type}-flash.sh
 
 mount_baserock_image()
 {
     mkdir -p tmp/brmount
     mkdir -p tmp/boot
-    mount -t btrfs $1 tmp/brmount
+    if [ "$partitioned_image" -eq "0"]; then
+        mount -t btrfs $1 tmp/brmount
+        cp -a -r tmp/brmount/systems/factory/run/boot/* tmp/boot/
+    else
+        mount -o loop,offset=$(find_root_fs $1) -t btrfs $1 tmp/brmount
+        mount -o loop,offset=$(find_boot $1) -t btrfs $1 tmp/boot
+    fi
     return 0
 }
 
@@ -60,15 +116,20 @@ umount_baserock_image()
 
 flash_br()
 {
-    echo "Flashing $1 to /dev/${2}2"
+    if [ "$partitioned_image" -eq "1" ]; then
+        target="/dev/${2}"
+    else
+        target="/dev/${2}2"
+    fi
+    echo "Flashing $1 to $target"
     if [ `command -v pv` ]; then
-        pv -tpreb $1 | dd of=/dev/${2}2 bs=8M
+        pv -tpreb $1 | dd of="$target" bs=8M
     else
         echo "Did not find pv, to see progress of this flash use:"
         echo "    kill -USR1 dd"
         echo "from another terminal"
-        dd if=$1 of=/dev/${2}2 bs=8M
-    fi;
+        dd if=$1 of="$target" bs=8M
+    fi
     return 0
 }
 
@@ -144,14 +205,16 @@ done
 set -- $fs_device
 fs_device=$1
 
-# partition device
-echo "Partitioning device /dev/$fs_device"
-echo "This can cause catastrophic data loss if /dev/$fs_device is not the intended target!"
-echo "Press enter to confirm, or Ctrl+C to quit (you have been warned!)"
-read confirm
+if [ "$partitioned_image" -eq "0" ]; then
+    # partition device
+    echo "Partitioning device /dev/$fs_device"
+    echo "This can cause catastrophic data loss if /dev/$fs_device is not the intended target!"
+    echo "Press enter to confirm, or Ctrl+C to quit (you have been warned!)"
+    read confirm
 
-board_partition $1
-copy_boot $1
+    board_partition $1
+    copy_boot $1
+fi
 flash_br $baserock_image $1
 
 echo "Now reboot the device and enjoy baserock!"

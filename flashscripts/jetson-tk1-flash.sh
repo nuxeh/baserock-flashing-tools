@@ -37,8 +37,10 @@ board_setup_boot_folder()
     cd "$boot_dir/systems/"
     ln -s factory default
     cd "$current_dir"
-    cp -r "$mount_dir/systems/factory/run/boot/u-boot/" "$boot_dir"
-    cp -r "$mount_dir/systems/factory/run/boot/u-boot.bin" "$boot_dir"
+#    cp -r "$mount_dir/systems/factory/run/boot/u-boot/" "$boot_dir"
+#    cp -r "$mount_dir/systems/factory/run/boot/u-boot.bin" "$boot_dir"
+    rm "$boot_dir/kernel" &> /dev/null || true
+    rm "$boot_dir/dtb" &> /dev/null || true
     return 0
 }
 
@@ -64,23 +66,25 @@ board_flash_uboot()
         exit 1
     fi
 
+    failed=0
     tegra_uboot_flasher=$TEGRA_TOOLS_DIR/tegra-uboot-flasher-scripts/tegra-uboot-flasher
     if [ ! -f "${tegra_uboot_flasher}" ]; then
         echo "Failed to find tegra-uboot-flasher"
-        echo "Please set TEGRA_TOOLS_DIR to the folder containing:"
-        echo "    * tegra-uboot-flasher-scripts/"
-        echo "    * cbootimage-configs/"
-        exit 1
-    fi;
+        failed=1
+    fi
 
     tegra_cbootimage_cfg=$TEGRA_TOOLS_DIR/cbootimage-configs/
     if [ ! -d "${tegra_cbootimage_cfg}" ]; then
-        echo "Failed to find tegra-uboot-flasher"
+        echo "Failed to find cbootimage-configs"
+        failed=1
+    fi
+
+    if [ "$failed" -eq "1" ]; then
         echo "Please set TEGRA_TOOLS_DIR to the folder containing:"
         echo "    * tegra-uboot-flasher-scripts/"
         echo "    * cbootimage-configs/"
         exit 1
-    fi;
+    fi
  
     tegra_uboot_flasher_dir=`echo $tegra_uboot_flasher | sed 's|\(.*\)/.*|\1|'`
 
@@ -105,6 +109,11 @@ board_flash_uboot()
 
 board_partition()
 {
+    # You may implement disk paritioning here, if the Baserock image is not
+    # already partitioned using the rawdisk.write extension. If this script
+    # detects that the image is already partitioned, this function will not
+    # be called
+
     fdisk /dev/$1 <<EOF
 g
 
