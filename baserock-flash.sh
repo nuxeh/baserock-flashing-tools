@@ -24,9 +24,10 @@ partitioned_image=0
 cleanup()
 {
     umount tmp/* &>/dev/null || true
-    rm -rf tmp/* || true
+#    losetup -D
+    rm -rf tmp || true
 }
-trap cleanup EXIT
+#trap cleanup EXIT
 
 if [ "$baserock_image" = "" ] || [ ! -f "$baserock_image" ]; then
     echo "Must specify a baserock image to flash!"
@@ -46,53 +47,57 @@ fi;
 # Check to see if the Baserock image is already partitioned
 check_partitioning()
 {
-    mkdir -p tmp/testmnt
-    if mount -t btrfs $baserock_image tmp/testmnt; then
-        umount tmp/testmnt
+    if [ "`fdisk -l $1 | egrep \"$1[0-9]+\" 2> /dev/null | wc -l`" -eq "0"  ]; then
         echo 'Using unpartitioned image'
         partitioned_image=0
     else
         echo 'Using partitioned image'
         partitioned_image=1
     fi
-    rm -rf tmp/testmnt
+}
+
+get_sector_size()
+{
+    echo "$(fdisk -l $1 | grep "Sector size" | awk '{print $4}' 2> /dev/null)"
+    return 0
 }
 
 # Search for a partition containing a filename
-find_partition_containing()
+mount_partition_containing()
 {
-    mkdir -p tmp/testmnt
-    ret=1
-    for offset in $(fdisk -l $2 | egrep "$2[0-9]+" | awk '{print $2}'); do
-        if mount -o loop,offset="$offset" -t btrfs $2 tmp/testmnt; then
-            if [ -f "$1" ]; then
-                echo "$offset"
-                ret=0
+    mkdir -p "$3"
+    sector_size=$(get_sector_size "$2")
+    for offset in $(fdisk -l "$2" | egrep "$2[0-9]+" | awk '{print $2}'); do
+        if mount -o loop,offset="$(($offset * $sector_size))" "$2" "$3"; then
+            testpath="$3/$1"
+            if [ -f $testpath ] || [ -d $testpath ]; then
+                echo "$(($offset * $sector_size))"
+                return 0
             fi
-            umount tmp/testmnt
+            sleep 1
+            umount "$3"
         fi
     done
-    rm -rf tmp/testmnt
-    if [ $ret == 1 ]; then
-        echo "Can't find target '$1' in any partition in the image" 1>&2
-        exit 1
-    fi
-    return $ret
+    rm -rf "$3"
+    echo "Can't find target '$1' in any partition in the image" 1>&2
+    exit 1
 }
 
 # Search for a partition containing a Baserock rootfs
-find_root_fs()
+mount_root_fs()
 {
-    find_partition_containing 'tmp/test/systems/default/orig/baserock' $1
+    mount_partition_containing 'systems/default/orig/baserock' "$1" "$2"
+    return 0
 }
 
 # Search for a partition containing boot files
-find_boot()
+mount_boot()
 {
-    find_partition_containing 'u-boot.bin' $1
+    mount_partition_containing 'u-boot.bin' "$1" "$2"
+    return 0
 }
 
-check_partitioning
+check_partitioning $baserock_image
 
 source flashscripts/${device_type}-flash.sh
 
@@ -104,8 +109,13 @@ mount_baserock_image()
         mount -t btrfs $1 tmp/brmount
         cp -a -r tmp/brmount/systems/factory/run/boot/* tmp/boot/
     else
-        mount -o loop,offset=$(find_root_fs $1) -t btrfs $1 tmp/brmount
-        mount -o loop,offset=$(find_boot $1) -t btrfs $1 tmp/boot
+        mkdir -p tmp/bootmnt
+        mount_root_fs "$1" tmp/brmount
+        mount_boot "$1" tmp/bootmnt
+        cp -a -r tmp/bootmnt/* tmp/boot
+        sync
+        umount tmp/bootmnt
+        rm -rf tmp/bootmnt
     fi
     return 0
 }
@@ -126,11 +136,13 @@ flash_br()
     echo "Flashing $1 to $target"
     if [ `command -v pv` ]; then
         pv -tpreb $1 | dd of="$target" bs=8M
+        sync
     else
         echo "Did not find pv, to see progress of this flash use:"
         echo "    kill -USR1 dd"
         echo "from another terminal"
         dd if=$1 of="$target" bs=8M
+        sync
     fi
     return 0
 }
@@ -139,8 +151,13 @@ copy_boot()
 {
     echo "Copying boot files to boot partition"
     mkdir -p tmp/bootmount
-    mount /dev/${1}1 tmp/bootmount
+    if [ "$partitioned_image" -eq "0" ]; then
+        mount "/dev/${1}1" tmp/bootmount
+    else
+        mount_boot "/dev/$1" tmp/bootmount 
+    fi
     cp -r tmp/boot/* tmp/bootmount
+    sync
     umount tmp/bootmount
     return 0
 }
@@ -163,12 +180,11 @@ board_flash_uboot
 
 sleep 5
 
-losetup
 cat /proc/partitions | tr -s ' ' | cut -d ' ' -f 5 > tmp/devices.new
 
 # partition
 
-fs_device=`comm -3 tmp/devices.existing tmp/devices.new | sed -e 's/^[ \t]*//'` # | sed 's/loop\d+/'`
+fs_device=`comm -3 tmp/devices.existing tmp/devices.new | sed -e 's/^[ \t]*//' | sed 's/loop[0-9]\+//g'`
 echo $fs_device
 set -- $fs_device
 
@@ -216,8 +232,8 @@ if [ "$partitioned_image" -eq "0" ]; then
     read confirm
 
     board_partition $1
-    copy_boot $1
 fi
 flash_br $baserock_image $1
+copy_boot $1
 
 echo "Now reboot the device and enjoy baserock!"
