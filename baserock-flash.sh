@@ -94,11 +94,12 @@ mount_boot()
     # Identify the boot partition by UUID, and mount it
     fstab_path='tmp/brmount/systems/default/orig/etc/fstab'
     sector_size=$(get_sector_size "$1")
-    boot_uuid=$(cat $fstab_path | grep /boot | awk '{print $1}' | sed 's/UUID=//')
 
     if ! mount | grep brmount; then
         # Rootfs needs to be mounted to access fstab
         mount_rootfs "$1" tmp/brmount
+        boot_uuid=$(cat $fstab_path | grep /boot | awk '{print $1}' | sed 's/UUID=//')
+        umount tmp/brmount
     fi
 
     for offset in $(fdisk -l "$1" | egrep "$1[0-9]+" | awk '{print $2}'); do
