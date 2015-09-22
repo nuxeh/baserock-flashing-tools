@@ -96,6 +96,11 @@ mount_boot()
     sector_size=$(get_sector_size "$1")
     boot_uuid=$(cat $fstab_path | grep /boot | awk '{print $1}' | sed 's/UUID=//')
 
+    if ! mount | grep brmount; then
+        # Rootfs needs to be mounted to access fstab
+        mount_rootfs "$1" tmp/brmount
+    fi
+
     for offset in $(fdisk -l "$1" | egrep "$1[0-9]+" | awk '{print $2}'); do
         part_uuid=$(blkid -p -O $(($offset * $sector_size)) -o value -s UUID "$1")
         if [ "$part_uuid" == "$boot_uuid" ]; then
