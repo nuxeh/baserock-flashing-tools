@@ -28,21 +28,17 @@ board_setup_boot_folder()
     boot_dir="tmp/boot"
     mount_dir="tmp/brmount"
     current_dir=`pwd`
-    # Modify boot files if this has not already been done - by this script, or
-    # a configuration extension, for example
-    if ! [ -d "$boot_dir$factory" ] ; then
-        mkdir -p "$boot_dir/extlinux/"
-        cp "$mount_dir/extlinux.conf" "$boot_dir/extlinux/"
-        sed -i "s/mmcblk0p1/mmcblk0p2/" "$boot_dir/extlinux/extlinux.conf"
-        mkdir -p "$boot_dir/systems/factory"
-        cp "$mount_dir/systems/factory/kernel" "$boot_dir/systems/factory/"
-        cp "$mount_dir/systems/factory/dtb" "$boot_dir/systems/factory/"
-        cd "$boot_dir/systems/"
-        ln -s factory default
-        cd "$current_dir"
-        rm "$boot_dir/kernel" &> /dev/null || true
-        rm "$boot_dir/dtb" &> /dev/null || true
-    fi
+    mkdir -p "$boot_dir/extlinux/"
+    cp "$mount_dir/extlinux.conf" "$boot_dir/extlinux/"
+    sed -i "s/mmcblk0p1/mmcblk0p2/" "$boot_dir/extlinux/extlinux.conf"
+    mkdir -p "$boot_dir/systems/factory"
+    cp "$mount_dir/systems/factory/kernel" "$boot_dir/systems/factory/"
+    cp "$mount_dir/systems/factory/dtb" "$boot_dir/systems/factory/"
+    cd "$boot_dir/systems/"
+    ln -s factory default
+    cd "$current_dir"
+    rm "$boot_dir/kernel" &> /dev/null || true
+    rm "$boot_dir/dtb" &> /dev/null || true
     return 0
 }
 

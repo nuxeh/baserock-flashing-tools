@@ -44,9 +44,9 @@ if [ ! -f "flashscripts/${device_type}-flash.sh" ]; then
     exit 1
 fi;
 
-# Check to see if the Baserock image is already partitioned
 check_partitioning()
 {
+    # Check to see if the Baserock image is already partitioned
     if [ "`fdisk -l $1 | egrep \"$1[0-9]+\" 2> /dev/null | wc -l`" -eq "0"  ]; then
         echo 'Using unpartitioned image'
         partitioned_image=0
@@ -62,16 +62,15 @@ get_sector_size()
     return 0
 }
 
-# Search for a partition containing a filename
 mount_partition_containing()
 {
+    # Search for a partition containing a filename
     mkdir -p "$3"
     sector_size=$(get_sector_size "$2")
     for offset in $(fdisk -l "$2" | egrep "$2[0-9]+" | awk '{print $2}'); do
-        if mount -o loop,offset="$(($offset * $sector_size))" "$2" "$3"; then
+        if mount -o ro,loop,offset="$(($offset * $sector_size))" "$2" "$3"; then
             testpath="$3/$1"
             if [ -f $testpath ] || [ -d $testpath ]; then
-                echo "$(($offset * $sector_size))"
                 return 0
             fi
             sleep 1
@@ -83,18 +82,31 @@ mount_partition_containing()
     exit 1
 }
 
-# Search for a partition containing a Baserock rootfs
 mount_root_fs()
 {
+    # Search for a partition containing a Baserock rootfs
     mount_partition_containing 'systems/default/orig/baserock' "$1" "$2"
     return 0
 }
 
-# Search for a partition containing boot files
 mount_boot()
 {
-    mount_partition_containing 'u-boot.bin' "$1" "$2"
-    return 0
+    # Identify the boot partition by UUID, and mount it
+    fstab_path='tmp/brmount/systems/default/orig/etc/fstab'
+    sector_size=$(get_sector_size "$1")
+    boot_uuid=$(cat $fstab_path | grep /boot | awk '{print $1}' | sed 's/UUID=//')
+
+    for offset in $(fdisk -l "$1" | egrep "$1[0-9]+" | awk '{print $2}'); do
+        part_uuid=$(blkid -p -O $(($offset * $sector_size)) -o value -s UUID "$1")
+        if [ "$part_uuid" == "$boot_uuid" ]; then
+            mkdir -p "$2"
+            echo "Mounting /boot partition, filesystem UUID=$part_uuid"
+            mount -o ro,loop,offset="$(($offset * $sector_size))" "$1" "$2"
+            return 0
+        fi
+    done
+    echo "ERROR: /boot partition not found."
+    return 1
 }
 
 check_partitioning $baserock_image
@@ -106,7 +118,7 @@ mount_baserock_image()
     mkdir -p tmp/brmount
     mkdir -p tmp/boot
     if [ "$partitioned_image" -eq "0" ]; then
-        mount -t btrfs $1 tmp/brmount
+        mount -o ro -t btrfs $1 tmp/brmount
         cp -a -r tmp/brmount/systems/factory/run/boot/* tmp/boot/
     else
         mkdir -p tmp/bootmnt
