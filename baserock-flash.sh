@@ -24,10 +24,11 @@ partitioned_image=0
 cleanup()
 {
     umount tmp/* &>/dev/null || true
-#    losetup -D
+    sleep 1
+    losetup -D
     rm -rf tmp || true
 }
-#trap cleanup EXIT
+trap cleanup EXIT
 
 if [ "$baserock_image" = "" ] || [ ! -f "$baserock_image" ]; then
     echo "Must specify a baserock image to flash!"
@@ -62,13 +63,19 @@ get_sector_size()
     return 0
 }
 
+mount_ro()
+{
+    loopdev=$(losetup --show --read-only -f -P -o "$1" "$2")
+    mount "$loopdev" "$3"
+}
+
 mount_partition_containing()
 {
     # Search for a partition containing a filename
     mkdir -p "$3"
     sector_size=$(get_sector_size "$2")
     for offset in $(fdisk -l "$2" | egrep "$2[0-9]+" | awk '{print $2}'); do
-        if mount -o ro,loop,offset="$(($offset * $sector_size))" "$2" "$3"; then
+        if mount_ro "$(($offset * $sector_size))" "$2" "$3"; then
             testpath="$3/$1"
             if [ -f $testpath ] || [ -d $testpath ]; then
                 return 0
@@ -91,23 +98,22 @@ mount_root_fs()
 
 mount_boot()
 {
-    # Identify the boot partition by UUID, and mount it
+    # Identify the boot partition by UUID from fstab in the rootfs, and mount it
     fstab_path='tmp/brmount/systems/default/orig/etc/fstab'
     sector_size=$(get_sector_size "$1")
-
-    if ! mount | grep brmount; then
-        # Rootfs needs to be mounted to access fstab
-        mount_rootfs "$1" tmp/brmount
-        boot_uuid=$(cat $fstab_path | grep /boot | awk '{print $1}' | sed 's/UUID=//')
-        umount tmp/brmount
-    fi
+    boot_uuid=$(cat $fstab_path | grep /boot | awk '{print $1}' | sed 's/UUID=//')
 
     for offset in $(fdisk -l "$1" | egrep "$1[0-9]+" | awk '{print $2}'); do
-        part_uuid=$(blkid -p -O $(($offset * $sector_size)) -o value -s UUID "$1")
+        offset=$(($offset * $sector_size))
+        part_uuid=$(blkid -p -O "$offset" -o value -s UUID "$1")
         if [ "$part_uuid" == "$boot_uuid" ]; then
             mkdir -p "$2"
             echo "Mounting /boot partition, filesystem UUID=$part_uuid"
-            mount -o ro,loop,offset="$(($offset * $sector_size))" "$1" "$2"
+            if [ "$3" == 'rw' ]; then
+                mount -o loop,offset="$offset" "$1" "$2"
+            else
+                mount_ro "$offset" "$1" "$2"
+            fi
             return 0
         fi
     done
@@ -124,12 +130,12 @@ mount_baserock_image()
     mkdir -p tmp/brmount
     mkdir -p tmp/boot
     if [ "$partitioned_image" -eq "0" ]; then
-        mount -o ro -t btrfs $1 tmp/brmount
+        mount_ro 0 $1 tmp/brmount
         cp -a -r tmp/brmount/systems/factory/run/boot/* tmp/boot/
     else
         mkdir -p tmp/bootmnt
         mount_root_fs "$1" tmp/brmount
-        mount_boot "$1" tmp/bootmnt
+        mount_boot "$1" tmp/bootmnt 'ro'
         cp -a -r tmp/bootmnt/* tmp/boot
         sync
         umount tmp/bootmnt
@@ -172,7 +178,9 @@ copy_boot()
     if [ "$partitioned_image" -eq "0" ]; then
         mount "/dev/${1}1" tmp/bootmount
     else
-        mount_boot "/dev/$1" tmp/bootmount 
+        mount_root_fs "/dev/$1" tmp/brmount
+        mount_boot "/dev/$1" tmp/bootmount 'rw'
+        umount tmp/brmount
     fi
     cp -r tmp/boot/* tmp/bootmount
     sync
