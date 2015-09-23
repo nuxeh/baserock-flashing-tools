@@ -48,7 +48,7 @@ fi;
 check_partitioning()
 {
     # Check to see if the Baserock image is already partitioned
-    if [ "`fdisk -l $1 | egrep \"$1[0-9]+\" 2> /dev/null | wc -l`" -eq "0"  ]; then
+    if [ "`fdisk -l $1 | egrep \"$1[0-9]+\" 2> /dev/null | wc -l 2> /dev/null`" -eq "0"  ]; then
         echo 'Using unpartitioned image'
         partitioned_image=0
     else
@@ -74,7 +74,7 @@ mount_partition_containing()
     # Search for a partition containing a filename
     mkdir -p "$3"
     sector_size=$(get_sector_size "$2")
-    for offset in $(fdisk -l "$2" | egrep "$2[0-9]+" | awk '{print $2}'); do
+    for offset in $(fdisk -l "$2" | egrep "$2[0-9]+" | awk '{print $2}' 2> /dev/null); do
         if mount_ro "$(($offset * $sector_size))" "$2" "$3"; then
             testpath="$3/$1"
             if [ -f $testpath ] || [ -d $testpath ]; then
@@ -102,7 +102,7 @@ mount_boot()
     sector_size=$(get_sector_size "$1")
     boot_uuid=$(cat tmp/fstab | grep /boot | awk '{print $1}' | sed 's/UUID=//')
 
-    for offset in $(fdisk -l "$1" | egrep "$1[0-9]+" | awk '{print $2}'); do
+    for offset in $(fdisk -l "$1" | egrep "$1[0-9]+" | awk '{print $2}' 2> /dev/null); do
         offset=$(($offset * $sector_size))
         part_uuid=$(blkid -p -O "$offset" -o value -s UUID "$1")
         if [ "$part_uuid" == "$boot_uuid" ]; then
