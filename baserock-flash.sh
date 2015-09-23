@@ -99,9 +99,8 @@ mount_root_fs()
 mount_boot()
 {
     # Identify the boot partition by UUID from fstab in the rootfs, and mount it
-    fstab_path='tmp/brmount/systems/default/orig/etc/fstab'
     sector_size=$(get_sector_size "$1")
-    boot_uuid=$(cat $fstab_path | grep /boot | awk '{print $1}' | sed 's/UUID=//')
+    boot_uuid=$(cat tmp/fstab | grep /boot | awk '{print $1}' | sed 's/UUID=//')
 
     for offset in $(fdisk -l "$1" | egrep "$1[0-9]+" | awk '{print $2}'); do
         offset=$(($offset * $sector_size))
@@ -135,7 +134,8 @@ mount_baserock_image()
     else
         mkdir -p tmp/bootmnt
         mount_root_fs "$1" tmp/brmount
-        mount_boot "$1" tmp/bootmnt 'ro'
+        cp 'tmp/brmount/systems/default/orig/etc/fstab' tmp
+        mount_boot "$1" tmp/bootmnt
         cp -a -r tmp/bootmnt/* tmp/boot
         sync
         umount tmp/bootmnt
@@ -178,9 +178,7 @@ copy_boot()
     if [ "$partitioned_image" -eq "0" ]; then
         mount "/dev/${1}1" tmp/bootmount
     else
-        mount_root_fs "/dev/$1" tmp/brmount
         mount_boot "/dev/$1" tmp/bootmount 'rw'
-        umount tmp/brmount
     fi
     cp -r tmp/boot/* tmp/bootmount
     sync
